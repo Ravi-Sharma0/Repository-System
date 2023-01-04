@@ -31,9 +31,8 @@ const url = 'mongodb+srv://Mitro9:iltutmis@cluster0.4fv8teb.mongodb.net/reposito
 try {
   mongoose.connect(url, () => {
     console.log('DB Connected...');
-  }).then(() => {
-    app.listen(5000);
   });
+  app.listen(5000);
 } catch (err) {
   console.log(err);
 }

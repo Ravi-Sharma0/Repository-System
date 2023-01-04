@@ -3,6 +3,8 @@ const { validationResult} = require('express-validator');
 
 const Errors = require('../models/errors');
 const Publication = require('../models/publication');
+const User = require('../models/user');
+const { default: mongoose } = require('mongoose');
 
 let DUMMY_PLACES = [
     {
@@ -14,88 +16,173 @@ let DUMMY_PLACES = [
     }
    ];
 
-const getPublicationById = (req, res, next) => {
+const getPublicationById = async (req, res, next) => {
     const publicationId = req.params.pid;
-    const publication = DUMMY_PLACES.find(p => {
-        return p.id === publicationId;
-    });
+    let publication;
+
+    try {
+        publication = await Publication.findById(publicationId);
+    } catch (err) {
+        const error = new Errors(
+            'Something went wrong, could not find a publication.',
+            500
+        );
+        return next(error);
+    }
 
     if(!publication) {
         throw new Errors('Could not find a place for provided id.', 404);
     }
 
-    res.json({ publication });
+    res.json({ publication: publication.toObject( {getters: true }) });
 }; //function getPlaceById
 
-const getPublicationsByUserId = (req, res, next) => {
+const getPublicationsByUserId = async (req, res, next) => {
     const userId = req.params.uid;
+    let publications;
 
-    const publication = DUMMY_PLACES.filter(p => {
-        return p.creator === userId;
-    });
+    try {
+        publications = await Publication.find({ creator: userId });
+    } catch (err) {
+        const error = new Errors(
+            'Fetching publication failed, please try again.',
+            500
+        );
+        return next(error);
+    }
 
-    if(!publication || publication.length === 0) {
+    if(!publications || publications.length === 0) {
         return next(new Errors('Could not find placse for provided user id.', 404));
     }
 
-    res.json({ publication });
+    res.json({ publications: publications.map(publication => publication.toObject({ getters: true })) });
 };
 
 const createPublication = async (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-        throw new Errors('Invalid inputs passed, please check your data.', 422);
+        return next( new Errors('Invalid inputs passed, please check your data.', 422));
     }
     
-    const { title, description, address, creator} = req.body;
+    const { department, school, title, year, date, author, journal, volume, page, issue, doi, type, scopus, wos, ugc, crossref, scopuscitation, access, creator} = req.body;
     //const title = req.body.title;
     const createdPublication = new Publication({
+        department,
+        school,
         title,
-        description,
-        address,
+        year,
+        date,
+        author,
+        journal,
+        volume,
+        page,
+        issue,
+        doi,
+        type,
+        scopus,
+        wos,
+        ugc,
+        crossref,
+        scopuscitation,
+        access,
         creator
+
     });
 
+    let user;
+
     try {
-        await createdPublication.save();
-        console.log('in');
+        user = await User.findById(creator);
     } catch (err) {
         const error = new Errors(
-            'Creating place failed, please try again.',
+            'Creating publication failed, please try again',
             500
         );
-        console.log('out');
+        return next(error);
+    }
+
+    if(!user){
+        const error = new Errors('Could not find user for provided id', 404);
+        return next (error);
+    }
+
+    try {
+        const session = await mongoose.startSession();
+        session.startTransaction();
+        await createdPublication.save({ session: session});
+        user.publications.push(createPublication);
+        await user.save({ session: session});
+        await session.commitTransaction();
+    } catch (err) {
+        const error = new Errors(
+            'Creating publication failed, please try again.',
+            500
+        );
         return next(error);
     }
 
     res.status(201).json({publication: createdPublication});
 };
 
-const updatePublication = (req, res, next) => {
+const updatePublication = async (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-        throw new Errors('Invalid inputs passed, please check your data.', 422);
+        return next( new Errors('Invalid inputs passed, please check your data.', 422));
     }
 
     const { title, description} = req.body;
     const publicationId = req.params.pid;
 
-    const updatedPublication = { ...DUMMY_PLACES.find(p => p.id === publicationId) };
-    const publicationIndex = DUMMY_PLACES.findIndex(p => p.id === publicationId);
-    updatedPublication.title = title;
-    updatedPublication.description = description;
+    let publication;
+    try {
+        publication = await Publication.findById(publicationId);
+    } catch (err) {
+        const error = new Errors(
+            'Something went wrong, could not update publication.',
+            500
+        );
+        return next(error);
+    }
 
-    DUMMY_PLACES[publicationIndex] = updatedPublication;
+    publication.title = title;
+    publication.description = description;
 
-    res.status(200).json({place: updatedPlace});
+    try {
+        await publication.save();
+    } catch (err) {
+        const error = new Errors(
+            'Something went wrong, could not update publication.',
+            500
+        );
+        return next(error);
+    }
+
+    res.status(200).json({publication: publication.toObject({ getters: true })});
 };
 
-const deletePublication = (req, res, next) => {
+const deletePublication = async (req, res, next) => {
     const publicationId = req.params.pid;
-    if (!DUMMY_PLACES.find(p => p.id === publicationId)) {
-        throw new Errors('Could not find a place for that id.', 404);
+    
+    let publication;
+    try {
+        publication = await Publication.findById(publicationId);
+    } catch (err) {
+        const error = new Errors(
+            'Something went wrong, could not delete publication.',
+            500
+        );
+        return next(error);
     }
-    DUMMY_PLACES = DUMMY_PLACES.filter(p => p.id !== publicationId);
+
+    try {
+        await publication.remove();
+    } catch (err) {
+        const error = new Errors(
+            'Something went wrong, could not delete publication.',
+            500
+        );
+        return next(error);
+    }
 
     res.status(200).json({message: 'Deleted publication.'});
 };
